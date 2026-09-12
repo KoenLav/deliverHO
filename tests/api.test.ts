@@ -63,7 +63,7 @@ beforeEach(async () => {
     now: () => NOW,
   })
 
-  app = buildServer({ store, service, pseudonymKey: PSEUDONYM_KEY, now: () => NOW })
+  app = buildServer({ store, service, pseudonymKey: PSEUDONYM_KEY, now: () => NOW, mode: 'demo', logger: false })
   await app.ready()
 })
 

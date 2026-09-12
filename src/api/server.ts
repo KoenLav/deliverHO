@@ -1,5 +1,8 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
+import helmet from '@fastify/helmet'
+import rateLimit from '@fastify/rate-limit'
 import { z } from 'zod'
+import type { DeployMode } from '../config.js'
 import type { Uuid } from '../domain/types.js'
 import { detectSignals } from '../risk/indicators.js'
 import { extend, panic, sweep } from '../safety/session.js'
@@ -21,6 +24,12 @@ export interface ServerDeps {
   /** HMAC key for administration pseudonyms. Injected, never defaulted. */
   pseudonymKey: string
   now: () => string
+  /** Stamped on every response so an instance's mode is never in doubt. */
+  mode: DeployMode
+  /** False in tests. */
+  logger?: boolean
+  logLevel?: string
+  trustProxy?: boolean
 }
 
 const locationSchema = z.object({
@@ -71,10 +80,87 @@ function actorOf(request: FastifyRequest): Actor | null {
 }
 
 export function buildServer(deps: ServerDeps): FastifyInstance {
-  const app = Fastify({ logger: false })
+  const app = Fastify({
+    /**
+     * Logging is deliberately lobotomised.
+     *
+     * Logs are the classic leak path for exactly the data this platform exists
+     * to protect: a request line carrying a booking id, an address, or a worker
+     * id ends up in a log aggregator with far weaker access controls than the
+     * database, and stays there. So requests are logged by *route pattern*
+     * (`/bookings/:id`, never the id), and headers, body, query and params are
+     * dropped before they reach a serialiser.
+     */
+    logger:
+      deps.logger === false
+        ? false
+        : {
+            level: deps.logLevel ?? 'info',
+            serializers: {
+              // Typed structurally: pino's reply serializer receives a shape
+              // whose routeOptions is optional, so naming FastifyReply here
+              // silently pushes the whole instance onto the http2 overload.
+              req(request: { method: string; routeOptions?: { url?: string | undefined } }) {
+                return {
+                  method: request.method,
+                  route: request.routeOptions?.url ?? 'unmatched',
+                }
+              },
+              res(reply: { statusCode: number }) {
+                return { statusCode: reply.statusCode }
+              },
+            },
+            redact: {
+              paths: ['req.headers', 'req.body', 'req.query', 'req.params', 'req.url'],
+              remove: true,
+            },
+          },
+    trustProxy: deps.trustProxy ?? false,
+    disableRequestLogging: false,
+  })
   const { store, service } = deps
 
-  app.get('/health', async () => ({ ok: true, at: deps.now() }))
+  void app.register(helmet, {
+    // No profile page or API response should ever be framed by a third party,
+    // and referrers must not carry booking ids off-site.
+    contentSecurityPolicy: { directives: { 'default-src': ["'none'"], 'frame-ancestors': ["'none'"] } },
+    referrerPolicy: { policy: 'no-referrer' },
+    // Match the CSP rather than helmet's SAMEORIGIN default, which contradicts
+    // frame-ancestors 'none' for anything reading the legacy header.
+    frameguard: { action: 'deny' },
+  })
+
+  void app.register(rateLimit, {
+    max: 120,
+    timeWindow: '1 minute',
+    // Verification and booking endpoints are the ones worth enumerating
+    // against; a global ceiling is the floor, not the whole answer.
+    keyGenerator: (request) => {
+      const actor = request.headers['x-actor-id']
+      return typeof actor === 'string' ? `actor:${actor}` : `ip:${request.ip}`
+    },
+  })
+
+  /** Every response says which mode produced it. */
+  app.addHook('onSend', async (_request, reply, payload) => {
+    void reply.header('x-deliverho-mode', deps.mode)
+    if (deps.mode === 'demo') {
+      void reply.header(
+        'x-deliverho-warning',
+        'DEMO INSTANCE -- synthetic data only, nothing persisted, auth is forgeable',
+      )
+    }
+    return payload
+  })
+
+  app.get('/health', async () => ({
+    ok: true,
+    at: deps.now(),
+    mode: deps.mode,
+    ...(deps.mode === 'demo'
+      ? { warning: 'Demo instance. Synthetic data only. Do not enter real data.' }
+      : {}),
+  }))
 
   // -- Client: request a booking -------------------------------------------
 
