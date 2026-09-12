@@ -13,6 +13,26 @@ try {
 } catch (error) {
   if (error instanceof ConfigError) {
     console.error(`\n${error.message}\n`)
+    // On Fly the message alone is not quite enough: the fix is a `fly secrets`
+    // call from the operator's own machine, not an edit to anything in the
+    // container. Print the exact command rather than make someone go and find
+    // it while staring at a crash loop.
+    const flyApp = process.env['FLY_APP_NAME']
+    if (flyApp !== undefined && flyApp !== '') {
+      console.error(
+        [
+          `Running on Fly as "${flyApp}". Set the missing values with:`,
+          '',
+          `  fly secrets set -a ${flyApp} \\`,
+          '    PSEUDONYM_KEY="$(openssl rand -hex 32)" \\',
+          '    DEMO_ACCESS_USER="reviewer" \\',
+          `    DEMO_ACCESS_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/')"`,
+          '',
+          'Keep the password that command prints -- `fly secrets list` shows digests only.',
+          '',
+        ].join('\n'),
+      )
+    }
     process.exit(1)
   }
   throw error
