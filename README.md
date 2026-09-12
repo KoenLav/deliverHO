@@ -1,11 +1,23 @@
 # deliverHO
 
-Booking, safety and compliance backend for a **licensed Dutch escortbedrijf**.
+Booking, safety and compliance backend for a licensed Dutch sex-work platform.
+
+> **Status: spike.** The code here proved the model runs end to end, and it
+> predates the agreed functional design. Read
+> **[docs/functional-design.md](docs/functional-design.md)** first — it
+> supersedes several assumptions below, most importantly *who holds the
+> licence*. Roughly two thirds of this code carries forward; the matching
+> layer and the entire profile surface are new work.
 
 Sex work is legal in the Netherlands; operating a business that arranges it
 requires a municipal vergunning. This codebase is the software side of running
 such a business within those rules — worker-controlled scheduling, licensing
 gates, safety cover, and the booking administration a gemeente can inspect.
+
+Note that the spike assumes a *licensed agency* holds the vergunning and the
+platform serves it. Under the agreed design the platform itself is the
+operator, which moves the licence — and the intake duty — onto us. See
+functional design §1 and §6.
 
 ## What it is not
 
