@@ -1,44 +1,35 @@
-# Fly.io configuration for the DEMO instance.
+# fly.toml app configuration file generated for deliverho on 2026-09-12T13:11:14Z
 #
-# Amsterdam region, deliberately: this is AVG Article 9 territory even with
-# synthetic data, and the hosting precedent is one of the things a gemeente or
-# a DPO will ask about. Starting in the EU costs nothing; moving later does.
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
-# NO SECRETS IN THIS FILE. It is committed. PSEUDONYM_KEY, DEMO_ACCESS_USER and
-# DEMO_ACCESS_PASSWORD are set with `fly secrets set` -- see docs/deployment.md.
 
-app = "deliverho-demo"
-primary_region = "ams"
+app = 'deliverho'
+primary_region = 'ams'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [env]
-  DEPLOY_MODE = "demo"
-  HOST = "0.0.0.0"
-  PORT = "3000"
-  LOG_LEVEL = "info"
-  # Fly terminates TLS and forwards the client address, so rate limiting should
-  # key on the forwarded address rather than on the proxy's.
-  TRUST_PROXY = "1"
+  DEPLOY_MODE = 'demo'
+  HOST = '0.0.0.0'
+  LOG_LEVEL = 'info'
+  PORT = '3000'
+  TRUST_PROXY = '1'
 
 [http_service]
-  internal_port = 3000
+  internal_port = 8080
   force_https = true
-  # Scales to zero when idle. The store is in-memory, so a demo that has slept
-  # comes back freshly seeded -- which suits a demo and reinforces the point
-  # that nothing here is persisted.
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
   [[http_service.checks]]
-    grace_period = "10s"
-    interval = "30s"
-    method = "GET"
-    path = "/health"
-    timeout = "5s"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  size = 'shared-cpu-1x'
+  memory = '256mb'
