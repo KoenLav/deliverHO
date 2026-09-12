@@ -147,6 +147,14 @@ jobs:
           echo "$mode"
           echo "$mode" | grep -qi 'demo' || { echo "::error::Instance is not in demo mode"; exit 1; }
 
+          root=$(curl -sS -o /tmp/root.html -w '%{http_code}' --max-time 30 "$base/")
+          echo "GET / -> $root"
+          [ "$root" = "200" ] || { echo "::error::Demo page returned $root"; exit 1; }
+          grep -q 'deliverHO' /tmp/root.html || { echo "::error::Root did not serve the demo page"; exit 1; }
+          engine=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$base/engine.js")
+          echo "GET /engine.js -> $engine"
+          [ "$engine" = "200" ] || { echo "::error::Engine bundle returned $engine"; exit 1; }
+
           robots=$(curl -sS --max-time 30 "$base/robots.txt")
           echo "robots.txt -> $robots"
           echo "$robots" | grep -q 'Disallow: /' || { echo "::error::robots.txt is not disallowing crawlers"; exit 1; }
@@ -154,6 +162,7 @@ jobs:
           {
             echo "## Live and public"
             echo
+            echo "- $base — the clickable demo, no password"
             echo "- $base/health — 200"
             echo "- No basic-auth prompt; open to anyone with the link"
             echo "- Still \`noindex\` and \`Disallow: /\`, so it stays out of search results"

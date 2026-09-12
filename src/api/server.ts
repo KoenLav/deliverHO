@@ -3,6 +3,8 @@ import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import { z } from 'zod'
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import type { AccessGate, DeployMode } from '../config.js'
 import type { Uuid } from '../domain/types.js'
 import { detectSignals } from '../risk/indicators.js'
@@ -124,9 +126,24 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   const { store, service } = deps
 
   void app.register(helmet, {
+    // Starts from deny-everything and opens only what the demo page needs.
     // No profile page or API response should ever be framed by a third party,
     // and referrers must not carry booking ids off-site.
-    contentSecurityPolicy: { directives: { 'default-src': ["'none'"], 'frame-ancestors': ["'none'"] } },
+    contentSecurityPolicy: {
+      directives: {
+        'default-src': ["'none'"],
+        // The page carries its styles and script inline, and the engine bundle
+        // is served from this origin.
+        'script-src': ["'self'", "'unsafe-inline'"],
+        'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        'font-src': ['https://fonts.gstatic.com'],
+        'img-src': ["'self'", 'data:'],
+        'connect-src': ["'self'"],
+        'base-uri': ["'none'"],
+        'form-action': ["'none'"],
+        'frame-ancestors': ["'none'"],
+      },
+    },
     referrerPolicy: { policy: 'no-referrer' },
     // Match the CSP rather than helmet's SAMEORIGIN default, which contradicts
     // frame-ancestors 'none' for anything reading the legacy header.
@@ -192,6 +209,29 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
     void reply.type('text/plain')
     return deps.mode === 'demo' ? 'User-agent: *\nDisallow: /\n' : 'User-agent: *\n'
   })
+
+  /**
+   * The demo page, served from this origin so one URL is the whole thing
+   * rather than a bare API that answers 404 at its root.
+   *
+   * Read once at startup and held in memory: two small files, and reading them
+   * per request would be a filesystem call on a path derived from a URL, which
+   * is a category of bug worth not having at all.
+   */
+  const web = loadWebAssets()
+  if (web !== null) {
+    app.get('/', async (_request, reply) => {
+      void reply.type('text/html; charset=utf-8')
+      return web.html
+    })
+    app.get('/engine.js', async (_request, reply) => {
+      void reply.type('text/javascript; charset=utf-8')
+      return web.engine
+    })
+    // Browsers ask for this unprompted; answering keeps a 404 out of every
+    // visitor's console.
+    app.get('/favicon.ico', async (_request, reply) => reply.code(204).send())
+  }
 
   app.get('/health', async () => ({
     ok: true,
@@ -453,6 +493,22 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   }
 
   return app
+}
+
+/**
+ * Returns null when public/ has not been built, which is the normal case in
+ * tests. The API works without it; only the demo page disappears.
+ */
+function loadWebAssets(): { html: string; engine: string } | null {
+  const dir = resolve(process.cwd(), 'public')
+  try {
+    return {
+      html: readFileSync(join(dir, 'index.html'), 'utf8'),
+      engine: readFileSync(join(dir, 'engine.js'), 'utf8'),
+    }
+  } catch {
+    return null
+  }
 }
 
 function unauthorized(reply: FastifyReply) {

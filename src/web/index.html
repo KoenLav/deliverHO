@@ -1,0 +1,833 @@
+<title>deliverHO Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Spectral:wght@600&display=swap">
+<style>
+  :root {
+    --ground: #EDEEEB; --surface: #FAFBF8; --sunk: #E4E6E1;
+    --ink: #15191B; --ink-soft: #4D565B; --ink-faint: #79838A;
+    --rule: #D3D7D1; --rule-strong: #B7BDB6;
+    --accent: #1D5A70; --accent-ink: #FFFFFF; --accent-soft: #DFEAEF;
+    --ok: #2C6349; --warn: #8E5317; --warn-soft: #F4E9D9;
+    --stop: #862E29; --stop-soft: #F5E3E1;
+    --shadow: 0 1px 2px rgba(21,25,27,.06), 0 6px 18px rgba(21,25,27,.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0D1113; --surface: #171D20; --sunk: #121819;
+      --ink: #E3E8E5; --ink-soft: #9EA9AD; --ink-faint: #727E84;
+      --rule: #273034; --rule-strong: #3B474C;
+      --accent: #71B0C6; --accent-ink: #0D1113; --accent-soft: #15303A;
+      --ok: #7FC0A0; --warn: #D6A163; --warn-soft: #33260F;
+      --stop: #DB8880; --stop-soft: #3B1F1D;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0D1113; --surface: #171D20; --sunk: #121819;
+    --ink: #E3E8E5; --ink-soft: #9EA9AD; --ink-faint: #727E84;
+    --rule: #273034; --rule-strong: #3B474C;
+    --accent: #71B0C6; --accent-ink: #0D1113; --accent-soft: #15303A;
+    --ok: #7FC0A0; --warn: #D6A163; --warn-soft: #33260F;
+    --stop: #DB8880; --stop-soft: #3B1F1D;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body { background: var(--ground); color: var(--ink); font-family: "IBM Plex Sans", system-ui, sans-serif; line-height: 1.5; }
+  .page { max-width: 1180px; margin-inline: auto; padding-inline: 18px; padding-block: 0 56px; }
+
+  header.top { padding-block: 26px 14px; }
+  .brandrow { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; }
+  .brand { font-family: Spectral, Georgia, serif; font-weight: 600; font-size: 1.5rem; letter-spacing: -.01em; margin: 0; }
+  .chip {
+    font-family: "IBM Plex Mono", monospace; font-size: .63rem; letter-spacing: .1em;
+    text-transform: uppercase; border: 1px solid currentColor; padding: 3px 8px; white-space: nowrap;
+  }
+  .chip.live { color: var(--ok); }
+  .chip.synth { color: var(--warn); }
+  .sub { color: var(--ink-soft); font-size: .9rem; margin: 9px 0 0; max-width: 68ch; }
+  .sub b { color: var(--ink); font-weight: 600; }
+
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 17px; }
+  .tabs { display: flex; border: 1px solid var(--rule-strong); background: var(--surface); }
+  .tab { font: inherit; font-size: .86rem; font-weight: 500; padding: 8px 15px; background: none; border: 0; cursor: pointer; color: var(--ink-soft); border-right: 1px solid var(--rule); }
+  .tab:last-child { border-right: 0; }
+  .tab[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); }
+  .tab:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .toggle { font: inherit; font-size: .8rem; padding: 7px 12px; cursor: pointer; background: var(--surface); border: 1px solid var(--rule-strong); color: var(--ink-soft); }
+  .toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+
+  .note { border-left: 2px solid var(--accent); background: var(--accent-soft); padding: 9px 12px; font-size: .79rem; line-height: 1.45; color: var(--ink-soft); margin: 10px 0; }
+  .note b { color: var(--accent); font-weight: 600; }
+  body.hide-notes .note { display: none; }
+
+  .panel { display: none; margin-top: 20px; }
+  .panel.on { display: block; }
+  .split { display: grid; grid-template-columns: minmax(0,352px) minmax(0,1fr); gap: 24px; align-items: start; }
+  @media (max-width: 820px) { .split { grid-template-columns: 1fr; } }
+
+  .phone { border: 1px solid var(--rule-strong); background: var(--surface); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); max-width: 100%; }
+  .phone-bar { background: var(--sunk); border-bottom: 1px solid var(--rule); padding: 9px 14px; display: flex; justify-content: space-between; align-items: center; font-family: "IBM Plex Mono", monospace; font-size: .68rem; color: var(--ink-faint); }
+  .phone-body { padding: 15px; display: flex; flex-direction: column; gap: 12px; }
+
+  .card { border: 1px solid var(--rule); background: var(--surface); padding: 14px; }
+  .card.lift { box-shadow: var(--shadow); }
+
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: .84rem; margin: 0; }
+  .kv dt { color: var(--ink-faint); font-family: "IBM Plex Mono", monospace; font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; padding-top: 2px; }
+  .kv dd { margin: 0; }
+  .kv dd.hidden-val { color: var(--ink-faint); font-style: italic; }
+
+  .status { font-family: "IBM Plex Mono", monospace; font-size: .65rem; letter-spacing: .08em; text-transform: uppercase; padding: 3px 7px; border: 1px solid currentColor; white-space: nowrap; }
+  .status.neutral { color: var(--ink-faint); }
+  .status.live { color: var(--accent); }
+  .status.good { color: var(--ok); }
+  .status.warn { color: var(--warn); }
+  .status.bad { color: var(--stop); }
+
+  .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+  button.act { font: inherit; font-size: .85rem; font-weight: 500; padding: 9px 14px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); cursor: pointer; flex: 1 1 auto; }
+  button.act.ghost { background: transparent; color: var(--accent); }
+  button.act.quiet { background: transparent; color: var(--ink-soft); border-color: var(--rule-strong); }
+  button.act.danger { background: transparent; color: var(--stop); border-color: var(--stop); }
+  button.act.panic { background: var(--stop); border-color: var(--stop); color: #fff; }
+  button.act:disabled { opacity: .45; cursor: not-allowed; }
+  button.act:hover:not(:disabled) { filter: brightness(1.08); }
+
+  h2.sec { font-size: .95rem; font-weight: 600; margin: 0 0 10px; display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  h2.sec .hint { font-weight: 400; font-size: .78rem; color: var(--ink-faint); }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+
+  .safety { border: 1px solid var(--accent); background: var(--accent-soft); padding: 13px; }
+  .safety.escalated { border-color: var(--stop); background: var(--stop-soft); }
+  .timer { font-family: "IBM Plex Mono", monospace; font-size: 1.85rem; font-weight: 500; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  .timer.urgent { color: var(--stop); }
+  .bar { height: 4px; background: var(--sunk); margin: 9px 0 4px; overflow: hidden; }
+  .bar span { display: block; height: 100%; background: var(--accent); }
+  .safety.escalated .bar span { background: var(--stop); }
+  .ladder { list-style: none; margin: 10px 0 0; padding: 0; font-size: .8rem; }
+  .ladder li { display: flex; gap: 9px; padding: 4px 0; border-top: 1px solid var(--rule); align-items: baseline; }
+  .ladder li:first-child { border-top: 0; }
+  .ladder .n { font-family: "IBM Plex Mono", monospace; font-size: .7rem; color: var(--ink-faint); }
+  .ladder .calling { color: var(--stop); font-weight: 600; }
+
+  .profiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 12px; }
+  .prof { border: 1px solid var(--rule); background: var(--surface); padding: 14px; text-align: left; font: inherit; cursor: pointer; color: inherit; }
+  .prof:hover, .prof.sel { border-color: var(--accent); }
+  .prof.sel { background: var(--accent-soft); }
+  .avatar { width: 42px; height: 42px; border-radius: 50%; background: var(--sunk); border: 1px solid var(--rule-strong); display: grid; place-items: center; font-family: Spectral, serif; font-size: 1.05rem; color: var(--ink-soft); margin-bottom: 9px; }
+  .prof h3 { margin: 0 0 3px; font-size: .95rem; font-weight: 600; }
+  .prof .meta { font-size: .78rem; color: var(--ink-faint); margin: 0 0 7px; }
+  .taglist { display: flex; flex-wrap: wrap; gap: 4px; }
+  .tag { font-size: .68rem; padding: 2px 6px; background: var(--sunk); color: var(--ink-soft); }
+
+  .tw { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 440px; font-size: .84rem; }
+  th { text-align: left; font-family: "IBM Plex Mono", monospace; font-weight: 500; font-size: .65rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); padding: 9px 12px; background: var(--sunk); border-bottom: 1px solid var(--rule-strong); }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  .mono { font-family: "IBM Plex Mono", monospace; font-size: .78rem; }
+
+  .signal { background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--warn); padding: 12px 14px; }
+  .signal.block { border-left-color: var(--stop); }
+  .signal h3 { margin: 0 0 4px; font-size: .86rem; font-weight: 600; display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap; }
+  .signal p { margin: 0; font-size: .82rem; color: var(--ink-soft); }
+  .signal code { font-family: "IBM Plex Mono", monospace; font-size: .76rem; color: var(--ink-faint); }
+
+  .empty { color: var(--ink-faint); font-size: .86rem; font-style: italic; padding: 16px 0; text-align: center; }
+
+  /* engine log */
+  .log { border: 1px solid var(--rule-strong); background: var(--sunk); }
+  .log-head { padding: 9px 13px; border-bottom: 1px solid var(--rule); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .log-head strong { font-size: .8rem; }
+  .log-head span { font-family: "IBM Plex Mono", monospace; font-size: .66rem; color: var(--ink-faint); }
+  .log-body { max-height: 330px; overflow-y: auto; font-family: "IBM Plex Mono", monospace; font-size: .72rem; line-height: 1.65; }
+  .log-body div { padding: 5px 13px; border-bottom: 1px solid var(--rule); display: flex; gap: 9px; }
+  .log-body div:last-child { border-bottom: 0; }
+  .log-body .call { color: var(--ink-soft); flex: 1; word-break: break-word; }
+  .log-body .res { white-space: nowrap; }
+  .log-body .res.ok { color: var(--ok); }
+  .log-body .res.no { color: var(--stop); }
+  .err { color: var(--stop); font-size: .82rem; margin: 8px 0 0; }
+
+  footer.bot { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: .8rem; color: var(--ink-faint); max-width: 90ch; }
+  footer.bot b { color: var(--ink-soft); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="page">
+  <header class="top">
+    <div class="brandrow">
+      <h1 class="brand">deliverHO</h1>
+      <span class="chip live">Real engine</span>
+      <span class="chip synth">Synthetic data</span>
+    </div>
+    <p class="sub">Three surfaces of a booking platform for independent sex workers in the Netherlands. <b>The logic on this page is the production engine</b> &mdash; the same booking state machine, screening gates, safety sessions and coercion detectors that the backend runs and its test suite covers, compiled to run in your browser. Watch the engine log: every decision below is a real call.</p>
+    <div class="controls">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" id="tab-worker" aria-selected="true" data-tab="worker">Worker app</button>
+        <button class="tab" role="tab" id="tab-client" aria-selected="false" data-tab="client">Client</button>
+        <button class="tab" role="tab" id="tab-office" aria-selected="false" data-tab="office">Back-office</button>
+      </div>
+      <button class="toggle" id="notes-toggle" aria-pressed="true">Design notes: on</button>
+      <button class="toggle" id="reset">Reset</button>
+    </div>
+  </header>
+
+  <section class="panel on" id="panel-worker">
+    <div class="split">
+      <div class="stack">
+        <div class="phone">
+          <div class="phone-bar"><span id="w-name">Robin</span><span id="w-state">&nbsp;</span></div>
+          <div class="phone-body" id="worker-body"></div>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="log">
+          <div class="log-head"><strong>Engine log</strong><span id="log-count">0 calls</span></div>
+          <div class="log-body" id="log-body"></div>
+        </div>
+        <div>
+          <div class="note"><b>The address is not there yet.</b> Before acceptance the worker sees the gemeente and venue type &mdash; enough to decide, not enough to be sent anywhere. <code>applyCommand(worker_accept)</code> is what releases it.</div>
+          <div class="note"><b>Declining costs nothing.</b> No counter, no rate, no effect on how often they are shown. Decline and Accept sit at equal weight.</div>
+          <div class="note"><b>Silence is the alarm.</b> The countdown is the real <code>sweep()</code> running against a real <code>SafetySession</code>. Let it run out and the engine escalates by itself &mdash; nobody presses anything.</div>
+          <div class="note"><b>Withdraw never disappears.</b> Available through <code>in_progress</code>, no fee, no reason. Consent to a booking is not consent to the rest of it.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-client">
+    <div class="split">
+      <div class="stack">
+        <div>
+          <h2 class="sec">Available <span class="hint">gemeente Amsterdam &middot; tonight</span></h2>
+          <div class="profiles" id="profiles"></div>
+        </div>
+        <div id="client-request"></div>
+      </div>
+      <div class="stack">
+        <h2 class="sec">Notes</h2>
+        <div class="note"><b>Requests run through real screening.</b> Pressing request calls <code>screen()</code> &mdash; operator vergunning, gemeente rules, client verification, worker eligibility, published availability and boundaries. Try requesting Noor: a blocking risk signal stops it, from the real detector.</div>
+        <div class="note"><b>No face photos by default.</b> A photo used elsewhere links identities through reverse image search, the most common way workers get outed. An initial unless the worker chooses otherwise, never framed as incomplete.</div>
+        <div class="note"><b>One named person, not a broadcast.</b> Workers are never put in silent competition. Unanswered requests expire rather than passing on.</div>
+        <div class="note"><b>No ratings anywhere.</b> Public rating of a person's sexual services is a pressure mechanism with no upside to them.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-office">
+    <div class="stack">
+      <div>
+        <h2 class="sec">Risk queue <span class="hint">live output of detectSignals()</span></h2>
+        <div class="stack" id="signals"></div>
+        <div class="note"><b>Signals gate bookings, never accounts.</b> Cutting off the income of someone already being controlled pushes them somewhere with no safeguards. A blocking signal stops new work and puts a named human in the loop.</div>
+      </div>
+      <div>
+        <h2 class="sec">Verification queue</h2>
+        <div class="tw">
+          <table>
+            <thead><tr><th>Worker</th><th>Age &amp; ID</th><th>Right to work</th><th>Intake interview</th><th>checkWorker()</th></tr></thead>
+            <tbody id="verif"></tbody>
+          </table>
+        </div>
+        <div class="note"><b>That last column is the real gate.</b> Each row is <code>checkWorker()</code> against the gemeente's rules. Noor fails on <code>intake_not_alone</code> &mdash; the interview exists to detect someone answering for the worker, so it is repeated, not passed with a caveat.</div>
+      </div>
+      <div>
+        <h2 class="sec">Municipal administration <span class="hint">toAdministrationRecord() output</span></h2>
+        <div class="tw">
+          <table>
+            <thead><tr><th>Date</th><th>Vergunning</th><th>Gemeente</th><th>Worker</th><th>Duration</th><th>Status</th></tr></thead>
+            <tbody id="admin"></tbody>
+          </table>
+        </div>
+        <div class="note"><b>No names, no addresses, no client.</b> The worker column is a real HMAC-SHA256 pseudonym computed in your browser, keyed outside the database, so a database breach re-identifies nobody. Enough to show a gemeente that licensed work happened; not enough to out anyone.</div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="bot">
+    <b>What is real:</b> the booking state machine, screening gates, eligibility checks, safety sessions, escalation sweep, coercion detectors and administration records are the production modules, bundled unchanged. <b>What is not:</b> the screens, the people, the vergunning, and the server &mdash; there is no database and no authentication here, and the safety clock is compressed so a booking takes a minute instead of an hour. Nobody in this prototype exists.
+  </footer>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  var E = window.DeliverHO;
+
+  // ---- compressed clock: one simulated minute per real second -------------
+  var MINUTE = 60000;
+  var DAY = 86400000;
+
+  function todayAt(hourUtc, plusDays) {
+    var d = new Date();
+    d.setUTCHours(hourUtc, 0, 0, 0);
+    if (plusDays) d.setTime(d.getTime() + plusDays * DAY);
+    return d.toISOString();
+  }
+
+  var START = todayAt(20);                    // 22:00 Amsterdam
+  var simNow = new Date(new Date(START).getTime() - 30 * MINUTE);
+  function now() { return simNow.toISOString(); }
+
+  // Worker boundaries are matched against local Amsterdam hours.
+  function localHourOf(at) {
+    return Number(new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Amsterdam', hour: 'numeric', hour12: false
+    }).formatToParts(new Date(at)).find(function (p) { return p.type === 'hour'; }).value) % 24;
+  }
+
+  var PSEUDONYM_KEY = 'prototype-key-not-the-production-one-0000';
+
+  // ---- fixtures -----------------------------------------------------------
+  var OPERATOR = {
+    id: 'op1', legalName: 'Voorbeeld B.V.', kvkNumber: '00000000',
+    vergunningNumber: 'ESC-2026-0001', municipality: 'GM0363',
+    vergunningValidFrom: todayAt(0, -200), vergunningValidUntil: todayAt(0, 200),
+    suspendedAt: null, beheerderName: 'A. Beheerder', contactPhone: '+31600000000'
+  };
+
+  function mkWorker(id, name, initial, dob, rate, iban, phone, intakeAlone) {
+    return {
+      id: id, operatorId: 'op1', displayName: name, status: 'active',
+      identity: {
+        method: 'in_person_document_check', verifiedAt: todayAt(0, -60),
+        verifiedBy: 'A. Beheerder', dateOfBirth: dob,
+        rightToWorkConfirmed: true, documentReferenceHash: 'synthetic'
+      },
+      intake: {
+        conductedAt: todayAt(0, -60), conductedBy: 'A. Beheerder', language: 'nl',
+        conductedAlone: intakeAlone, exitProgrammeInformationGiven: true,
+        concerns: intakeAlone ? null : 'A third party answered for her twice.'
+      },
+      servesMunicipalities: ['GM0363'], directPhone: phone, payoutIban: iban,
+      boundaries: {
+        refusedServices: [], earliestStartHour: 18, latestStartHour: 2,
+        maxBookingMinutes: 180, allowedLocationTypes: ['hotel', 'private_residence']
+      },
+      createdAt: todayAt(0, -60),
+      _initial: initial, _rate: rate, _age: ''
+    };
+  }
+
+  function baseWorkers() {
+    return [
+      mkWorker('w1', 'Robin', 'R', '1996-04-12', 25000, 'NL00BANK0000000001', '+31611111111', true),
+      mkWorker('w2', 'Sam', 'S', '1994-09-30', 22000, 'NL00BANK0000000002', '+31622222222', true),
+      // Shares a payout account with Sam, and her intake was not conducted
+      // alone. Both are real blocking conditions and the engine finds them.
+      mkWorker('w3', 'Noor', 'N', '1999-02-11', 28000, 'NL00BANK0000000002', '+31633333333', false)
+    ];
+  }
+
+  var CLIENT = {
+    id: 'cl1', verificationLevel: 'idin_verified',
+    phoneVerifiedAt: todayAt(0, -5), idinVerifiedAt: todayAt(0, -5),
+    blockedAt: null, blockedReason: null, createdAt: todayAt(0, -5)
+  };
+
+  var registry = new E.MunicipalityRegistry();
+  registry.register(Object.assign({}, E.STRICT_DEFAULTS, {
+    code: 'GM0363', allowPrivateResidenceBookings: true,
+    sourceReference: 'Prototype only — not a reading of any real APV'
+  }));
+
+  // ---- state --------------------------------------------------------------
+  var state;
+  function reset() {
+    state = {
+      tab: state ? state.tab : 'worker',
+      notes: state ? state.notes : true,
+      workers: baseWorkers(),
+      booking: null,
+      session: null,
+      selected: 'w1',
+      admin: [],
+      log: [],
+      error: null
+    };
+    state.availability = state.workers.map(function (w, i) {
+      return {
+        id: 'av' + i, workerId: w.id,
+        startsAt: todayAt(16), endsAt: todayAt(1, 1),
+        municipality: 'GM0363', withdrawnAt: null
+      };
+    });
+    simNow = new Date(new Date(START).getTime() - 30 * MINUTE);
+    request('w1', true);
+  }
+
+  function log(call, result, ok) {
+    state.log.unshift({ call: call, result: result, ok: ok });
+    if (state.log.length > 40) state.log.pop();
+  }
+
+  // ---- engine-driven actions ---------------------------------------------
+  function newBooking(workerId) {
+    var w = byId(workerId);
+    return {
+      id: 'bk_' + workerId, operatorId: 'op1', clientId: 'cl1', workerId: null,
+      status: 'requested', requestedStart: START, durationMinutes: 60,
+      location: {
+        type: 'hotel', municipality: 'GM0363',
+        addressLine: 'Damrak 1', postalCode: '1012LG', venueName: 'Hotel Voorbeeld'
+      },
+      requestedServices: ['Dinner date'], agreedRateCents: w._rate,
+      createdAt: now(),
+      history: [{ at: now(), status: 'requested', actor: { kind: 'client', id: 'cl1' }, reason: null }]
+    };
+  }
+
+  function byId(id) {
+    for (var i = 0; i < state.workers.length; i++) if (state.workers[i].id === id) return state.workers[i];
+    return state.workers[0];
+  }
+
+  /** Runs the real screening pipeline against one chosen worker. */
+  function request(workerId, quiet) {
+    state.error = null;
+    var b = newBooking(workerId);
+    b = must(b, { type: 'begin_screening' });
+
+    var signals = E.detectSignals({
+      operator: OPERATOR, workers: state.workers, stats: [], accesses: []
+    }, now());
+
+    var report = E.screen({
+      booking: b, operator: OPERATOR, client: CLIENT,
+      candidates: [byId(workerId)], availability: state.availability,
+      signals: signals, registry: registry, now: now(), localHourOf: localHourOf
+    });
+
+    if (report.outcome.decision === 'block') {
+      var codes = report.outcome.blockers.map(function (x) { return x.code; });
+      var why = (report.rejections[0] ? report.rejections[0].reasons : []).map(function (r) { return r.code; });
+      log('screen() → ' + byId(workerId).displayName, 'blocked: ' + (why.length ? why.join(', ') : codes.join(', ')), false);
+      b = must(b, { type: 'screening_failed', reason: codes.join(', ') });
+      state.booking = b;
+      state.error = 'Screening refused this request: ' + (why.length ? why.join(', ') : codes.join(', '));
+      if (!quiet) state.tab = 'client';
+      return;
+    }
+
+    log('screen() → ' + byId(workerId).displayName, 'offer', true);
+    state.booking = must(b, { type: 'screening_passed' });
+    if (!quiet) state.tab = 'worker';
+  }
+
+  function must(booking, command) {
+    var r = E.applyCommand(booking, command, now());
+    if (!r.ok) { log('applyCommand(' + command.type + ')', r.code, false); return booking; }
+    return r.booking;
+  }
+
+  function cmd(command) {
+    state.error = null;
+    var r = E.applyCommand(state.booking, command, now());
+    log('applyCommand(' + command.type + ')', r.ok ? r.booking.status : r.code, r.ok);
+    if (!r.ok) { state.error = r.message; render(); return; }
+    state.booking = r.booking;
+
+    if (command.type === 'worker_depart') openSession();
+    if (command.type === 'worker_arrive' && state.session) {
+      var ci = E.checkIn(state.session, command.workerId, now());
+      log('checkIn()', ci.ok ? ci.session.state : ci.code, ci.ok);
+      if (ci.ok) state.session = ci.session;
+    }
+    if (command.type === 'worker_complete' || command.type === 'worker_cancel') {
+      if (state.session) {
+        var co = E.checkOut(state.session, command.workerId, now());
+        log('checkOut()', co.ok ? co.session.state : co.code, co.ok);
+        if (co.ok) state.session = co.session;
+      }
+      recordAdministration();
+      stopClock();
+    }
+    render();
+  }
+
+  function openSession() {
+    var r = E.openSession({
+      id: 'ss1', bookingId: state.booking.id, workerId: state.booking.workerId,
+      durationMinutes: state.booking.durationMinutes, graceMinutes: 20,
+      contacts: [
+        { name: 'Trusted contact — Kim', phone: '+31611111111', order: 1, kind: 'trusted_person' },
+        { name: 'A. Beheerder (deliverHO)', phone: '+31600000000', order: 0, kind: 'operator_beheerder' }
+      ],
+      now: now()
+    });
+    log('openSession()', r.ok ? 'deadline ' + r.session.expectedCheckOutAt.slice(11, 16) : r.code, r.ok);
+    if (r.ok) { state.session = r.session; startClock(); }
+  }
+
+  function recordAdministration() {
+    var rec = E.toAdministrationRecord(state.booking, OPERATOR.vergunningNumber, '…');
+    E.pseudonymFor(state.booking.workerId, PSEUDONYM_KEY).then(function (p) {
+      rec.workerPseudonym = p;
+      state.admin.unshift(rec);
+      log('toAdministrationRecord()', 'pseudonym ' + p, true);
+      render();
+    });
+  }
+
+  // ---- the clock: real sweep() decides escalation --------------------------
+  var handle = null;
+  function startClock() {
+    stopClock();
+    handle = setInterval(function () {
+      simNow = new Date(simNow.getTime() + MINUTE);
+      if (state.session && state.session.state !== 'closed' && state.session.state !== 'escalated') {
+        var due = E.sweep([state.session], now(), 45);
+        if (due.length) {
+          state.session = E.applyEscalation(due[0], now());
+          log('sweep()', 'ESCALATE ' + due[0].reason, false);
+          stopClock();
+        }
+      }
+      render();
+    }, 1000);
+  }
+  function stopClock() { if (handle) { clearInterval(handle); handle = null; } }
+
+  // ---- rendering -----------------------------------------------------------
+  function $(id) { return document.getElementById(id); }
+  function el(t, c, h) { var n = document.createElement(t); if (c) n.className = c; if (h !== undefined) n.innerHTML = h; return n; }
+  function euro(c) { return '€' + (c / 100).toFixed(0); }
+  function mmss(ms) {
+    var s = Math.max(0, Math.round(ms / 1000));
+    var m = Math.floor(s / 60);
+    return m + ':' + (s % 60 < 10 ? '0' : '') + (s % 60);
+  }
+
+  var LABEL = {
+    requested: ['Requested', 'neutral'], screening: ['Screening', 'live'],
+    offered: ['Request', 'live'], accepted: ['Accepted', 'good'],
+    confirmed: ['Confirmed', 'good'], en_route: ['On the way', 'live'],
+    in_progress: ['In progress', 'live'], completed: ['Completed', 'neutral'],
+    declined_by_worker: ['Declined', 'neutral'], cancelled_by_worker: ['Withdrawn', 'warn'],
+    cancelled_by_client: ['Cancelled', 'neutral'], blocked_by_compliance: ['Refused', 'bad'],
+    expired: ['Expired', 'neutral']
+  };
+
+  function renderWorker() {
+    var host = $('worker-body'); host.innerHTML = '';
+    var b = state.booking;
+    var w = b && b.workerId ? byId(b.workerId) : byId(state.selected);
+    $('w-name').textContent = w.displayName;
+
+    var done = !b || E.isTerminal(b.status);
+    $('w-state').textContent = done ? 'No requests' : (LABEL[b.status] || ['—'])[0];
+
+    if (done) {
+      var msg = 'Nothing waiting.';
+      if (b && b.status === 'declined_by_worker') msg = 'Declined. Nothing was recorded against you.';
+      if (b && b.status === 'completed') msg = 'Completed. Safety session closed.';
+      if (b && b.status === 'cancelled_by_worker') msg = 'You withdrew. No fee, no explanation needed.';
+      if (b && b.status === 'blocked_by_compliance') msg = 'Screening refused this request before it reached you.';
+      var c = el('div', 'card'); c.appendChild(el('p', 'empty', msg)); host.appendChild(c);
+      var again = el('button', 'act ghost', 'Send a new request');
+      again.onclick = function () { request(w.id); render(); };
+      host.appendChild(again);
+      if (state.session) host.appendChild(renderSafety());
+      return;
+    }
+
+    var lab = LABEL[b.status] || ['—', 'neutral'];
+    var card = el('div', 'card lift');
+    var head = el('div', '');
+    head.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:11px';
+    head.appendChild(el('strong', '', b.status === 'offered' ? 'New request' : 'Your booking'));
+    head.appendChild(el('span', 'status ' + lab[1], lab[0]));
+    card.appendChild(head);
+
+    var revealed = b.workerId !== null;
+    var dl = el('dl', 'kv');
+    function row(k, v, cls) { dl.appendChild(el('dt', '', k)); dl.appendChild(el('dd', cls || '', v)); }
+    row('When', 'Tonight 22:00 · ' + b.durationMinutes + ' min');
+    row('Where', 'Hotel, Amsterdam (GM0363)');
+    if (revealed) row('Address', b.location.venueName + '<br>' + b.location.addressLine);
+    else row('Address', 'Released when you accept', 'hidden-val');
+    row('Asked for', b.requestedServices.join(', '));
+    row('Rate', euro(b.agreedRateCents) + ' · your published rate');
+    row('Client', 'iDIN verified');
+    card.appendChild(dl);
+    host.appendChild(card);
+
+    if (state.error) host.appendChild(el('p', 'err', state.error));
+
+    var br = el('div', 'btnrow');
+    function btn(cls, text, command) {
+      var x = el('button', 'act ' + cls, text);
+      x.onclick = function () { cmd(command); };
+      return x;
+    }
+    if (b.status === 'offered') {
+      br.appendChild(btn('quiet', 'Decline', { type: 'worker_decline', workerId: w.id, reason: null }));
+      br.appendChild(btn('', 'Accept', { type: 'worker_accept', workerId: w.id }));
+    } else if (b.status === 'accepted') {
+      var wait = el('button', 'act ghost', 'Waiting for client to confirm'); wait.disabled = true;
+      br.appendChild(wait);
+    } else if (b.status === 'confirmed') {
+      br.appendChild(btn('', "I'm on my way", { type: 'worker_depart', workerId: w.id }));
+    } else if (b.status === 'en_route') {
+      br.appendChild(btn('', "I've arrived — I'm safe", { type: 'worker_arrive', workerId: w.id }));
+    } else if (b.status === 'in_progress') {
+      br.appendChild(btn('', 'Finished — I’m out and safe', { type: 'worker_complete', workerId: w.id }));
+    }
+    if (br.children.length) host.appendChild(br);
+
+    if (['accepted', 'confirmed', 'en_route', 'in_progress'].indexOf(b.status) >= 0) {
+      host.appendChild(btn('danger', 'Withdraw — no fee, no reason needed',
+        { type: 'worker_cancel', workerId: w.id, reason: null }));
+    }
+
+    if (state.session) host.appendChild(renderSafety());
+  }
+
+  function renderSafety() {
+    var s = state.session;
+    if (s.state === 'closed') return el('div', '');
+    var esc = s.state === 'escalated';
+    var box = el('div', 'safety' + (esc ? ' escalated' : ''));
+
+    var top = el('div', '');
+    top.style.cssText = 'display:flex;justify-content:space-between;align-items:baseline;gap:10px';
+    top.appendChild(el('strong', '', esc ? 'Escalated' : 'Safety session open'));
+    top.appendChild(el('span', 'status ' + (esc ? 'bad' : 'live'),
+      esc ? 'Contacting' : (s.state === 'checked_in' ? 'Checked in' : 'Travelling')));
+    box.appendChild(top);
+
+    if (esc) {
+      box.appendChild(el('p', '', '<span style="font-size:.83rem">' +
+        (s.escalationReason === 'panic_button' ? 'Panic button pressed' :
+         s.escalationReason === 'missed_checkout' ? 'No check-out before the deadline' :
+         'No check-in after departure') + '. Working down the contacts.</span>'));
+      var ul = el('ul', 'ladder');
+      s.escalationContacts.forEach(function (c, i) {
+        var li = el('li', '');
+        li.appendChild(el('span', 'n', String(i + 1)));
+        var mid = el('span', i === 0 ? 'calling' : '', c.name + (i === 0 ? ' — calling now' : ''));
+        mid.style.flex = '1';
+        li.appendChild(mid);
+        li.appendChild(el('span', 'mono', c.phone));
+        ul.appendChild(li);
+      });
+      box.appendChild(ul);
+      var stand = el('button', 'act ghost', "I'm fine — stand down");
+      stand.style.marginTop = '10px';
+      stand.onclick = function () {
+        var r = E.checkOut(state.session, state.booking.workerId, now());
+        log('checkOut() after escalation', r.ok ? r.session.state : r.code, r.ok);
+        if (r.ok) state.session = r.session;
+        render();
+      };
+      box.appendChild(stand);
+      return box;
+    }
+
+    var left = new Date(s.expectedCheckOutAt).getTime() - simNow.getTime();
+    var total = new Date(s.expectedCheckOutAt).getTime() - new Date(s.openedAt).getTime();
+    box.appendChild(el('div', 'timer' + (left < 15 * MINUTE ? ' urgent' : ''), mmss(left / 60)));
+    box.appendChild(el('p', '', '<span style="font-size:.78rem;color:var(--ink-soft)">' +
+      Math.max(0, Math.round(left / MINUTE)) + ' min left. Escalates by itself if you don’t close it — you never have to raise the alarm.</span>'));
+
+    var bar = el('div', 'bar'); var fill = el('span', '');
+    fill.style.width = Math.max(0, Math.min(100, (left / total) * 100)) + '%';
+    bar.appendChild(fill); box.appendChild(bar);
+
+    var br = el('div', 'btnrow'); br.style.marginTop = '10px';
+    var ext = el('button', 'act quiet', '+15 min');
+    ext.onclick = function () {
+      var r = E.extend(state.session, state.booking.workerId, 15, 120);
+      log('extend(15)', r.ok ? 'deadline ' + r.session.expectedCheckOutAt.slice(11, 16) : r.code, r.ok);
+      if (r.ok) state.session = r.session; else state.error = r.message;
+      render();
+    };
+    var skip = el('button', 'act quiet', 'Skip ahead');
+    skip.title = 'Demo control: jump the clock to just before the deadline';
+    skip.onclick = function () {
+      simNow = new Date(new Date(state.session.expectedCheckOutAt).getTime() - 2 * MINUTE);
+      render();
+    };
+    br.appendChild(ext); br.appendChild(skip); box.appendChild(br);
+
+    var panic = el('button', 'act panic', 'Panic');
+    panic.style.marginTop = '8px';
+    panic.onclick = function () {
+      var r = E.panic(state.session, state.booking.workerId, now());
+      log('panic()', r.ok ? r.session.state : r.code, r.ok);
+      if (r.ok) { state.session = r.session; stopClock(); }
+      render();
+    };
+    box.appendChild(panic);
+    return box;
+  }
+
+  function renderClient() {
+    var host = $('profiles'); host.innerHTML = '';
+    state.workers.forEach(function (w) {
+      var age = E.ageInYearsAt(w.identity.dateOfBirth, now());
+      var b = el('button', 'prof' + (state.selected === w.id ? ' sel' : ''));
+      b.appendChild(el('div', 'avatar', w._initial));
+      b.appendChild(el('h3', '', w.displayName));
+      b.appendChild(el('p', 'meta', age + ' · Amsterdam · from ' + euro(w._rate) + '/hr'));
+      var tl = el('div', 'taglist');
+      ['Dinner date', 'Hotel'].forEach(function (t) { tl.appendChild(el('span', 'tag', t)); });
+      b.appendChild(tl);
+      b.onclick = function () { state.selected = w.id; render(); };
+      host.appendChild(b);
+    });
+
+    var panel = $('client-request'); panel.innerHTML = '';
+    var w = byId(state.selected);
+    var bk = state.booking;
+    var mine = bk && bk.workerId === w.id;
+    var pending = bk && !E.isTerminal(bk.status) && bk.id === 'bk_' + w.id;
+
+    var card = el('div', 'card lift');
+    card.appendChild(el('h2', 'sec', 'Request ' + w.displayName));
+
+    if (!pending && !mine) {
+      if (state.error && state.booking && state.booking.id === 'bk_' + w.id) {
+        card.appendChild(el('p', 'err', state.error));
+      } else {
+        card.appendChild(el('p', 'empty', 'No active request with ' + w.displayName + '.'));
+      }
+      var send = el('button', 'act', 'Request tonight 22:00 · 60 min · ' + euro(w._rate));
+      send.onclick = function () { request(w.id); render(); };
+      card.appendChild(send);
+      panel.appendChild(card);
+      return;
+    }
+
+    var lab = LABEL[bk.status] || ['—', 'neutral'];
+    var hd = el('div', '');
+    hd.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap';
+    hd.appendChild(el('span', '', 'Tonight 22:00 · 60 min · ' + euro(bk.agreedRateCents)));
+    hd.appendChild(el('span', 'status ' + lab[1], lab[0]));
+    card.appendChild(hd);
+
+    var msg = {
+      offered: 'Sent to ' + w.displayName + '. They decide — we never answer for them.',
+      accepted: w.displayName + ' accepted. Confirm to go ahead.',
+      confirmed: 'Confirmed. ' + w.displayName + ' will set off.',
+      en_route: w.displayName + ' is on the way.',
+      in_progress: 'In progress.',
+      completed: 'Completed.',
+      declined_by_worker: w.displayName + ' declined. No reason given, and none owed.',
+      cancelled_by_worker: w.displayName + ' withdrew. No charge has been made.',
+      blocked_by_compliance: 'This request cannot be accepted.'
+    }[bk.status] || '';
+    card.appendChild(el('p', '', '<span style="font-size:.86rem;color:var(--ink-soft)">' + msg + '</span>'));
+
+    if (bk.status === 'accepted') {
+      var conf = el('button', 'act', 'Confirm booking');
+      conf.onclick = function () { cmd({ type: 'client_confirm', clientId: 'cl1' }); };
+      card.appendChild(conf);
+    }
+    panel.appendChild(card);
+  }
+
+  function renderOffice() {
+    var signals = E.detectSignals({
+      operator: OPERATOR, workers: state.workers,
+      stats: [{ workerId: 'w1', offersReceived: 24, offersAccepted: 24, offersDeclined: 0, longestConsecutiveHours: 6, overnightBookings: 2 }],
+      accesses: [
+        { workerId: 'w2', deviceFingerprint: 'd4f8a1c09b', at: now() },
+        { workerId: 'w3', deviceFingerprint: 'd4f8a1c09b', at: now() }
+      ]
+    }, now());
+
+    var host = $('signals'); host.innerHTML = '';
+    var seen = {};
+    signals.forEach(function (s) {
+      var key = s.code + s.subject.id;
+      if (seen[key]) return; seen[key] = 1;
+      var box = el('div', 'signal' + (s.severity === 'block' ? ' block' : ''));
+      var h = el('h3', '');
+      h.appendChild(el('span', '', byId(s.subject.id).displayName));
+      h.appendChild(el('span', 'status ' + (s.severity === 'block' ? 'bad' : 'warn'),
+        s.severity === 'block' ? 'Blocks bookings' : 'Review'));
+      box.appendChild(h);
+      box.appendChild(el('p', '', s.message));
+      box.appendChild(el('p', '', '<code>' + s.code + '</code>'));
+      host.appendChild(box);
+    });
+    if (!host.children.length) host.appendChild(el('p', 'empty', 'No signals.'));
+
+    var rules = registry.get('GM0363');
+    var v = $('verif'); v.innerHTML = '';
+    state.workers.forEach(function (w) {
+      var gate = E.checkWorker(w, rules, now());
+      var tr = document.createElement('tr');
+      tr.appendChild(el('td', '', w.displayName));
+      tr.appendChild(el('td', '', E.ageInYearsAt(w.identity.dateOfBirth, now()) + ' · verified'));
+      tr.appendChild(el('td', '', w.identity.rightToWorkConfirmed ? 'Confirmed' : '—'));
+      tr.appendChild(el('td', '', w.intake.conductedAlone ? 'Done · alone · nl' : 'Third party present'));
+      var td = el('td', '');
+      if (gate.ok) td.appendChild(el('span', 'status good', 'Passes'));
+      else gate.blockers.forEach(function (bl) {
+        var s = el('span', 'status bad', bl.code); s.style.marginRight = '4px'; td.appendChild(s);
+      });
+      tr.appendChild(td);
+      v.appendChild(tr);
+    });
+
+    var a = $('admin'); a.innerHTML = '';
+    if (!state.admin.length) {
+      var tr0 = document.createElement('tr');
+      var td0 = el('td', 'empty', 'No completed bookings yet — finish one in the worker app and the record appears here.');
+      td0.colSpan = 6; tr0.appendChild(td0); a.appendChild(tr0);
+    }
+    state.admin.slice(0, 8).forEach(function (r) {
+      var tr = document.createElement('tr');
+      tr.appendChild(el('td', '', r.date));
+      tr.appendChild(el('td', 'mono', r.vergunningNumber));
+      tr.appendChild(el('td', '', r.municipality));
+      tr.appendChild(el('td', 'mono', r.workerPseudonym));
+      tr.appendChild(el('td', '', r.durationMinutes + ' min'));
+      tr.appendChild(el('td', '', r.status));
+      a.appendChild(tr);
+    });
+  }
+
+  function renderLog() {
+    var host = $('log-body'); host.innerHTML = '';
+    $('log-count').textContent = state.log.length + (state.log.length === 1 ? ' call' : ' calls');
+    state.log.forEach(function (e) {
+      var d = el('div', '');
+      d.appendChild(el('span', 'call', e.call));
+      d.appendChild(el('span', 'res ' + (e.ok ? 'ok' : 'no'), (e.ok ? '→ ' : '✗ ') + e.result));
+      host.appendChild(d);
+    });
+    if (!state.log.length) host.appendChild(el('div', '', '<span class="call">No calls yet.</span>'));
+  }
+
+  function render() {
+    ['worker', 'client', 'office'].forEach(function (t) {
+      $('panel-' + t).classList.toggle('on', state.tab === t);
+      $('tab-' + t).setAttribute('aria-selected', String(state.tab === t));
+    });
+    document.body.classList.toggle('hide-notes', !state.notes);
+    renderWorker(); renderClient(); renderOffice(); renderLog();
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (t) {
+    t.onclick = function () { state.tab = t.getAttribute('data-tab'); render(); };
+  });
+  $('notes-toggle').onclick = function () {
+    state.notes = !state.notes;
+    this.setAttribute('aria-pressed', String(state.notes));
+    this.textContent = 'Design notes: ' + (state.notes ? 'on' : 'off');
+    render();
+  };
+  $('reset').onclick = function () { stopClock(); reset(); render(); };
+
+  reset();
+  render();
+})();
+</script>
