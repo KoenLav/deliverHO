@@ -40,7 +40,81 @@ Setting all three makes the process start. **It does not make the system
 ready.** The variables check shape, not readiness — see the pre-live checklist
 below.
 
+## The demo access gate
+
+A demo bound to anything other than loopback **refuses to start without
+`DEMO_ACCESS_USER` and `DEMO_ACCESS_PASSWORD`** (minimum 16 characters).
+
+Keying this on the bind address rather than a flag means a container — exposed
+by definition — cannot be started ungated by forgetting to set something.
+Local development on `HOST=127.0.0.1` stays ungated.
+
+What the curtain is for: the demo presents as an escort booking service run by
+a business that does not yet hold a vergunning. It arranges nothing real and
+its data is synthetic, but a gemeente official assessing that application
+finding it through a search is an avoidable and expensive artefact — and after
+functional design §1, that gemeente is our regulator.
+
+`/health` and `/robots.txt` stay open so the platform's own checks work;
+neither discloses anything. Demo responses carry
+`X-Robots-Tag: noindex, nofollow, noarchive, nosnippet`, and `/robots.txt`
+disallows everything.
+
+## Fly.io — the demo instance
+
+`fly.toml` is committed and targets **`ams` (Amsterdam)**. It contains no
+secrets.
+
+### First time
+
+```bash
+fly auth login
+fly apps create deliverho-demo          # or edit `app` in fly.toml
+
+fly secrets set \
+  PSEUDONYM_KEY="$(openssl rand -hex 32)" \
+  DEMO_ACCESS_USER="reviewer" \
+  DEMO_ACCESS_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/')"
+
+fly deploy
+```
+
+Read the gate password back with `fly secrets list` (digests only) — keep the
+value from the command above, or rotate it with another `fly secrets set`.
+
+### Thereafter
+
+```bash
+fly deploy                # from a clean working tree
+fly logs                  # route patterns only; no ids, ever
+fly status
+fly apps destroy deliverho-demo    # when the review is done
+```
+
+### Via GitHub Actions instead
+
+`.github/workflows/fly-deploy.yml` deploys on **manual dispatch only** —
+deliberately not on push, because nothing here should reach a public URL
+because someone merged a branch. It typechecks and runs the tests first, and
+requires typing `demo` to confirm.
+
+Set `FLY_API_TOKEN` as a repository secret (`fly tokens create deploy` gives a
+token scoped to deploying, not to the whole account). This path means the token
+never leaves your control.
+
+### Notes on the configuration
+
+- **Scales to zero** when idle. The store is in-memory, so a woken demo comes
+  back freshly seeded. That suits a demo and reinforces that nothing persists.
+- **`TRUST_PROXY=1`** because Fly terminates TLS and forwards the client
+  address; without it, rate limiting would key on the proxy and treat every
+  visitor as one client.
+- **256 MB, shared CPU** is ample for an in-memory demo.
+- **Rename the app** before creating it if Q7 (the name) lands first — the URL
+  is `<app>.fly.dev` and it is the most visible surface of the naming decision.
+
 ## Container
+
 
 ```bash
 docker build -t deliverho .

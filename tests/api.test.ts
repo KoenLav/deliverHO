@@ -270,3 +270,80 @@ describe('operator oversight', () => {
     expect(res.statusCode).toBe(401)
   })
 })
+
+describe('the access gate', () => {
+  const GATE = { user: 'reviewer', password: 'x'.repeat(20) }
+
+  async function gated() {
+    const registry = new MunicipalityRegistry()
+    registry.register({ code: 'GM0363', ...STRICT_DEFAULTS, sourceReference: 'test' })
+    const s = createStore()
+    const service = new BookingService(s, {
+      registry, safetyGraceMinutes: 20, checkInGraceMinutes: 45, now: () => NOW,
+    })
+    const a = buildServer({
+      store: s, service, pseudonymKey: PSEUDONYM_KEY, now: () => NOW,
+      mode: 'demo', logger: false, accessGate: GATE,
+    })
+    await a.ready()
+    return a
+  }
+
+  const creds = (user: string, password: string) =>
+    `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}`
+
+  it('refuses an unauthenticated request', async () => {
+    const a = await gated()
+    const res = await a.inject({ method: 'GET', url: '/me/offers' })
+    expect(res.statusCode).toBe(401)
+    expect(res.headers['www-authenticate']).toContain('Basic')
+  })
+
+  it('refuses wrong credentials', async () => {
+    const a = await gated()
+    const res = await a.inject({
+      method: 'GET', url: '/me/offers',
+      headers: { authorization: creds('reviewer', 'wrong-password-entirely') },
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('refuses a malformed authorization header', async () => {
+    const a = await gated()
+    for (const authorization of ['Bearer abc', 'Basic !!!!', 'Basic ' + Buffer.from('nocolon').toString('base64')]) {
+      const res = await a.inject({ method: 'GET', url: '/me/offers', headers: { authorization } })
+      expect(res.statusCode).toBe(401)
+    }
+  })
+
+  it('lets correct credentials through to the normal auth layer', async () => {
+    const a = await gated()
+    const res = await a.inject({
+      method: 'GET', url: '/me/offers',
+      headers: { authorization: creds(GATE.user, GATE.password) },
+    })
+    // Past the curtain, so now it is the missing worker identity that refuses.
+    expect(res.statusCode).toBe(401)
+    expect(res.json().code).toBe('worker_auth_required')
+  })
+
+  it('leaves /health open for platform health checks', async () => {
+    const a = await gated()
+    const res = await a.inject({ method: 'GET', url: '/health' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().mode).toBe('demo')
+  })
+
+  it('serves a disallow-all robots.txt without credentials', async () => {
+    const a = await gated()
+    const res = await a.inject({ method: 'GET', url: '/robots.txt' })
+    expect(res.statusCode).toBe(200)
+    expect(res.payload).toContain('Disallow: /')
+  })
+
+  it('marks demo responses noindex', async () => {
+    const a = await gated()
+    const res = await a.inject({ method: 'GET', url: '/health' })
+    expect(res.headers['x-robots-tag']).toContain('noindex')
+  })
+})

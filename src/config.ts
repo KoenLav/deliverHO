@@ -20,11 +20,33 @@
 
 export type DeployMode = 'demo' | 'live'
 
+/** Addresses that reach only this machine. Anything else is exposed. */
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
+
+export function isLoopback(host: string): boolean {
+  return LOOPBACK_HOSTS.has(host)
+}
+
+/**
+ * HTTP basic credentials guarding a demo instance.
+ *
+ * Not security in any deep sense -- it is a curtain. Its job is to keep a demo
+ * of an escort booking service, run by a business that does not yet hold a
+ * vergunning, out of search results and off the screen of the gemeente
+ * official assessing that very application.
+ */
+export interface AccessGate {
+  user: string
+  password: string
+}
+
 export interface Config {
   mode: DeployMode
   port: number
   host: string
   pseudonymKey: string
+  /** Set whenever a demo instance is reachable from outside the machine. */
+  accessGate: AccessGate | null
   /** Municipal licence number. Required in live mode; absent in demo. */
   vergunningNumber: string | null
   /** Trust an upstream proxy's X-Forwarded-For. Only where one really exists. */
@@ -120,13 +142,44 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
   }
 
+  const host = env['HOST'] ?? '0.0.0.0'
+
+  /**
+   * A demo bound to anything but loopback is reachable by someone else, so it
+   * needs the curtain. Keying this on the bind address rather than on a flag
+   * means a container -- which is exposed by definition -- cannot be started
+   * ungated by forgetting to set something.
+   */
+  let accessGate: AccessGate | null = null
+  if (mode === 'demo' && !isLoopback(host)) {
+    const user = env['DEMO_ACCESS_USER'] ?? ''
+    const password = env['DEMO_ACCESS_PASSWORD'] ?? ''
+
+    if (user.trim() === '' || password === '') {
+      problems.push(
+        `This demo binds to ${host}, so it is reachable from outside this machine and must be\n` +
+          '      gated. Set DEMO_ACCESS_USER and DEMO_ACCESS_PASSWORD, or bind HOST=127.0.0.1.\n' +
+          '      A public demo of an unlicensed escortbedrijf is an artefact the licensing\n' +
+          '      gemeente should not be able to find.',
+      )
+    } else if (password.length < 16) {
+      problems.push(
+        'DEMO_ACCESS_PASSWORD must be at least 16 characters. Generate one with:\n' +
+          '      node -e "console.log(require(\'crypto\').randomBytes(24).toString(\'base64url\'))"',
+      )
+    } else {
+      accessGate = { user, password }
+    }
+  }
+
   if (problems.length > 0) throw new ConfigError(problems)
 
   return {
     mode,
     port,
-    host: env['HOST'] ?? '0.0.0.0',
+    host,
     pseudonymKey,
+    accessGate,
     vergunningNumber,
     trustProxy: env['TRUST_PROXY'] === '1',
     logLevel: (env['LOG_LEVEL'] as Config['logLevel']) ?? 'info',
@@ -141,6 +194,9 @@ export function describeMode(config: Config): string {
       '  Nothing is persisted; the store dies with the process.',
       '  Actor identification is header-based and trivially forgeable.',
       '  Do not enter real worker, client or booking data into this instance.',
+      config.accessGate === null
+        ? '  Not gated -- bound to loopback, reachable only from this machine.'
+        : '  Gated behind HTTP basic auth, and excluded from search indexing.',
     ].join('\n')
   }
   return `  MODE: LIVE -- vergunning ${config.vergunningNumber}`

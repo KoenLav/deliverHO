@@ -35,8 +35,8 @@ describe('mode is never guessed', () => {
 })
 
 describe('demo mode', () => {
-  it('boots with just a pseudonym key', () => {
-    const config = load({ DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY })
+  it('boots with just a pseudonym key when bound to loopback', () => {
+    const config = load({ DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY, HOST: '127.0.0.1' })
     expect(config.mode).toBe('demo')
     expect(config.vergunningNumber).toBeNull()
   })
@@ -67,7 +67,7 @@ describe('demo mode', () => {
   })
 
   it('warns unmistakably in its own description', () => {
-    const text = describeMode(load({ DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY }))
+    const text = describeMode(load({ DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY, HOST: '127.0.0.1' }))
     expect(text).toContain('DEMO')
     expect(text).toContain('Do not enter real')
   })
@@ -118,13 +118,73 @@ describe('live mode cannot boot yet', () => {
 
 describe('other settings', () => {
   it('rejects a nonsense port', () => {
-    expect(problemsFrom({ DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY, PORT: 'abc' })[0]).toContain(
-      'PORT',
-    )
+    const problems = problemsFrom({
+      DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY, HOST: '127.0.0.1', PORT: 'abc',
+    })
+    expect(problems.join(' ')).toContain('PORT')
   })
 
   it('does not trust a proxy unless told to', () => {
-    expect(load({ DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY }).trustProxy).toBe(false)
-    expect(load({ DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY, TRUST_PROXY: '1' }).trustProxy).toBe(true)
+    const base = { DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY, HOST: '127.0.0.1' }
+    expect(load(base).trustProxy).toBe(false)
+    expect(load({ ...base, TRUST_PROXY: '1' }).trustProxy).toBe(true)
+  })
+})
+
+describe('the demo access gate', () => {
+  const base = { DEPLOY_MODE: 'demo', PSEUDONYM_KEY: KEY }
+  const PASSWORD = 'a'.repeat(20)
+
+  it('is not required when bound to loopback', () => {
+    expect(load({ ...base, HOST: '127.0.0.1' }).accessGate).toBeNull()
+    expect(load({ ...base, HOST: 'localhost' }).accessGate).toBeNull()
+  })
+
+  it('is required the moment the demo binds to anything else', () => {
+    // 0.0.0.0 is the container default, so a container cannot start ungated.
+    const problems = problemsFrom({ ...base, HOST: '0.0.0.0' }).join(' ')
+    expect(problems).toContain('DEMO_ACCESS_USER')
+    expect(problems).toContain('DEMO_ACCESS_PASSWORD')
+  })
+
+  it('explains why, not just what', () => {
+    const problems = problemsFrom({ ...base, HOST: '0.0.0.0' }).join(' ')
+    expect(problems).toContain('gemeente')
+  })
+
+  it('defaults to a bindable host, so the default is gated', () => {
+    expect(problemsFrom(base).join(' ')).toContain('DEMO_ACCESS_USER')
+  })
+
+  it('rejects a short password', () => {
+    const problems = problemsFrom({
+      ...base,
+      HOST: '0.0.0.0',
+      DEMO_ACCESS_USER: 'reviewer',
+      DEMO_ACCESS_PASSWORD: 'short',
+    }).join(' ')
+    expect(problems).toContain('16 characters')
+  })
+
+  it('accepts a properly configured gate', () => {
+    const config = load({
+      ...base,
+      HOST: '0.0.0.0',
+      DEMO_ACCESS_USER: 'reviewer',
+      DEMO_ACCESS_PASSWORD: PASSWORD,
+    })
+    expect(config.accessGate).toEqual({ user: 'reviewer', password: PASSWORD })
+  })
+
+  it('does not gate live mode, which has real authentication', () => {
+    const config = load({
+      DEPLOY_MODE: 'live',
+      PSEUDONYM_KEY: KEY,
+      HOST: '0.0.0.0',
+      AUTH_PROVIDER_URL: 'https://idp.example',
+      DATABASE_URL: 'postgres://x/y',
+      OPERATOR_VERGUNNING: 'ESC-2026-0001',
+    })
+    expect(config.accessGate).toBeNull()
   })
 })

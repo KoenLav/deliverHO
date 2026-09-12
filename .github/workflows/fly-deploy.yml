@@ -1,0 +1,45 @@
+# Manual deploy of the DEMO instance to Fly.io.
+#
+# workflow_dispatch only -- deliberately not on push. Nothing about this project
+# should reach a public URL because someone merged a branch.
+name: Deploy demo to Fly.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "demo" to confirm this deploys the gated demo instance'
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    concurrency: fly-deploy-demo
+    steps:
+      - name: Check confirmation
+        if: inputs.confirm != 'demo'
+        run: |
+          echo "::error::Confirmation did not match. Type 'demo' to proceed."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # A deploy that ships failing code to a URL someone is about to review is
+      # worse than no deploy.
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

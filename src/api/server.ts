@@ -2,7 +2,8 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import { z } from 'zod'
-import type { DeployMode } from '../config.js'
+import { createHash, timingSafeEqual } from 'node:crypto'
+import type { AccessGate, DeployMode } from '../config.js'
 import type { Uuid } from '../domain/types.js'
 import { detectSignals } from '../risk/indicators.js'
 import { extend, panic, sweep } from '../safety/session.js'
@@ -26,6 +27,8 @@ export interface ServerDeps {
   now: () => string
   /** Stamped on every response so an instance's mode is never in doubt. */
   mode: DeployMode
+  /** HTTP basic curtain over a demo that is reachable from outside. */
+  accessGate?: AccessGate | null
   /** False in tests. */
   logger?: boolean
   logLevel?: string
@@ -149,8 +152,45 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
         'x-deliverho-warning',
         'DEMO INSTANCE -- synthetic data only, nothing persisted, auth is forgeable',
       )
+      // Belt and braces with robots.txt below. A crawler that ignores one may
+      // honour the other, and a cached snapshot of this is not retractable.
+      void reply.header('x-robots-tag', 'noindex, nofollow, noarchive, nosnippet')
     }
     return payload
+  })
+
+  const gate = deps.accessGate ?? null
+  if (gate !== null) {
+    /**
+     * Basic auth over everything except /health, which the platform's own
+     * checks hit and which discloses nothing but a mode and a timestamp.
+     */
+    app.addHook('onRequest', async (request, reply) => {
+      if (request.url === '/health' || request.url === '/robots.txt') return
+
+      const header = request.headers.authorization
+      if (typeof header !== 'string' || !header.startsWith('Basic ')) {
+        return unauthorized(reply)
+      }
+
+      const decoded = Buffer.from(header.slice(6), 'base64').toString('utf8')
+      const separator = decoded.indexOf(':')
+      if (separator < 0) return unauthorized(reply)
+
+      const user = decoded.slice(0, separator)
+      const password = decoded.slice(separator + 1)
+
+      // Compare both halves unconditionally: short-circuiting on a wrong
+      // username would leak which half was wrong through response timing.
+      const userOk = constantTimeEquals(user, gate.user)
+      const passwordOk = constantTimeEquals(password, gate.password)
+      if (!userOk || !passwordOk) return unauthorized(reply)
+    })
+  }
+
+  app.get('/robots.txt', async (_request, reply) => {
+    void reply.type('text/plain')
+    return deps.mode === 'demo' ? 'User-agent: *\nDisallow: /\n' : 'User-agent: *\n'
   })
 
   app.get('/health', async () => ({
@@ -413,6 +453,28 @@ export function buildServer(deps: ServerDeps): FastifyInstance {
   }
 
   return app
+}
+
+function unauthorized(reply: FastifyReply) {
+  return reply
+    .code(401)
+    .header('www-authenticate', 'Basic realm="deliverHO demo", charset="UTF-8"')
+    .send({ code: 'access_gate', message: 'This demo instance is not public.' })
+}
+
+/**
+ * Length-independent comparison. timingSafeEqual throws on a length mismatch,
+ * which would itself leak the secret's length, so both sides are hashed to a
+ * fixed width first.
+ */
+function constantTimeEquals(a: string, b: string): boolean {
+  const ha = hashToWidth(a)
+  const hb = hashToWidth(b)
+  return timingSafeEqual(ha, hb)
+}
+
+function hashToWidth(value: string): Buffer {
+  return createHash('sha256').update(value, 'utf8').digest()
 }
 
 function sendError(reply: FastifyReply, result: Extract<ServiceResult<unknown>, { ok: false }>) {

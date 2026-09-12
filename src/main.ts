@@ -49,6 +49,7 @@ const app = buildServer({
   pseudonymKey: config.pseudonymKey,
   now,
   mode: config.mode,
+  accessGate: config.accessGate,
   logLevel: config.logLevel,
   trustProxy: config.trustProxy,
 })
