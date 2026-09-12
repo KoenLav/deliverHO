@@ -54,7 +54,73 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
+      # The app refuses to boot without these (src/config.ts), so provision
+      # them here rather than make it a separate manual round trip. Existing
+      # values are never overwritten.
+      - name: Ensure app secrets exist
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          existing=$(flyctl secrets list -a deliverho --json 2>/dev/null || echo '[]')
+          missing=0
+          for key in PSEUDONYM_KEY DEMO_ACCESS_USER DEMO_ACCESS_PASSWORD; do
+            echo "$existing" | grep -q "\"$key\"" || missing=1
+          done
+
+          if [ "$missing" = "0" ]; then
+            echo "All app secrets already present; leaving them untouched."
+            exit 0
+          fi
+
+          PW="$(openssl rand -base64 24 | tr -d '=+/')"
+          flyctl secrets set -a deliverho --stage \
+            PSEUDONYM_KEY="$(openssl rand -hex 32)" \
+            DEMO_ACCESS_USER="reviewer" \
+            DEMO_ACCESS_PASSWORD="$PW"
+
+          # Masked in the log; printed once in the run summary, which only
+          # people with repository access can read.
+          echo "::add-mask::$PW"
+          {
+            echo "## Demo gate credentials"
+            echo
+            echo "Generated for this deploy. They are not shown again."
+            echo
+            echo '| | |'
+            echo '|---|---|'
+            echo "| user | \`reviewer\` |"
+            echo "| password | \`$PW\` |"
+            echo
+            echo "Rotate with \`fly secrets set -a deliverho DEMO_ACCESS_PASSWORD=...\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Deploy
         run: flyctl deploy --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      # Proves two things at once: the service answers, and the curtain is up.
+      - name: Verify it is live and gated
+        run: |
+          set -euo pipefail
+          base="https://deliverho.fly.dev"
+
+          health=$(curl -sS -o /dev/null -w '%{http_code}' --retry 6 --retry-all-errors \
+                        --retry-delay 5 --max-time 30 "$base/health")
+          echo "GET /health -> $health"
+          [ "$health" = "200" ] || { echo "::error::Health check returned $health"; exit 1; }
+
+          gated=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$base/me/offers")
+          echo "GET /me/offers (no credentials) -> $gated"
+          [ "$gated" = "401" ] || { echo "::error::Expected 401 from the access gate, got $gated"; exit 1; }
+
+          robots=$(curl -sS --max-time 30 "$base/robots.txt")
+          echo "robots.txt -> $robots"
+
+          {
+            echo "## Live"
+            echo
+            echo "- $base/health — 200, mode reported by the app"
+            echo "- $base — 401 behind the access gate, as intended"
+          } >> "$GITHUB_STEP_SUMMARY"
