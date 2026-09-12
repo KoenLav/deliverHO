@@ -62,15 +62,17 @@ disallows everything.
 
 ## Fly.io — the demo instance
 
-`fly.toml` is committed and targets **`ams` (Amsterdam)**. It contains no
-secrets.
+`fly.toml` is committed, names the app **`deliverho`**, targets **`ams`
+(Amsterdam)**, and contains no secrets.
+
+> `fly launch` regenerates this file and gets two things wrong for this app: it
+> defaults `internal_port` to 8080 (we listen on 3000, so the health check would
+> fail the deploy) and it strips the comments. If you re-run it, re-check both.
 
 ### First time
 
 ```bash
 fly auth login
-fly apps create deliverho-demo          # or edit `app` in fly.toml
-
 fly secrets set \
   PSEUDONYM_KEY="$(openssl rand -hex 32)" \
   DEMO_ACCESS_USER="reviewer" \
@@ -88,7 +90,7 @@ value from the command above, or rotate it with another `fly secrets set`.
 fly deploy                # from a clean working tree
 fly logs                  # route patterns only; no ids, ever
 fly status
-fly apps destroy deliverho-demo    # when the review is done
+fly apps destroy deliverho          # when the review is done
 ```
 
 ### Via GitHub Actions instead
