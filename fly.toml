@@ -24,6 +24,10 @@ primary_region = 'ams'
 
 [env]
   DEPLOY_MODE = 'demo'
+  # Served openly on purpose. Safe only because this instance carries nothing
+  # but synthetic data and persists nothing -- if that ever stops being true,
+  # this comes out before the data goes in.
+  DEMO_PUBLIC = '1'
   HOST = '0.0.0.0'
   LOG_LEVEL = 'info'
   PORT = '3000'

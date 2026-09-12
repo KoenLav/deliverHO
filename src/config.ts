@@ -145,22 +145,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const host = env['HOST'] ?? '0.0.0.0'
 
   /**
-   * A demo bound to anything but loopback is reachable by someone else, so it
-   * needs the curtain. Keying this on the bind address rather than on a flag
-   * means a container -- which is exposed by definition -- cannot be started
-   * ungated by forgetting to set something.
+   * A demo bound to anything but loopback is reachable by someone else, so by
+   * default it needs the curtain. Keying that on the bind address rather than
+   * on a flag means a container -- which is exposed by definition -- cannot be
+   * started ungated by forgetting to set something.
+   *
+   * DEMO_PUBLIC=1 serves it openly on purpose. That is a legitimate choice for
+   * a demo carrying nothing but synthetic data, but it stays opt-out rather
+   * than default: going public should be a decision someone made, never the
+   * result of an unset variable.
    */
   let accessGate: AccessGate | null = null
   if (mode === 'demo' && !isLoopback(host)) {
     const user = env['DEMO_ACCESS_USER'] ?? ''
     const password = env['DEMO_ACCESS_PASSWORD'] ?? ''
+    const deliberatelyPublic = env['DEMO_PUBLIC'] === '1'
 
-    if (user.trim() === '' || password === '') {
+    if (deliberatelyPublic && user.trim() === '' && password === '') {
+      accessGate = null
+    } else if (user.trim() === '' || password === '') {
       problems.push(
-        `This demo binds to ${host}, so it is reachable from outside this machine and must be\n` +
-          '      gated. Set DEMO_ACCESS_USER and DEMO_ACCESS_PASSWORD, or bind HOST=127.0.0.1.\n' +
-          '      A public demo of an unlicensed escortbedrijf is an artefact the licensing\n' +
-          '      gemeente should not be able to find.',
+        `This demo binds to ${host}, so it is reachable from outside this machine.\n` +
+          '      Either gate it with DEMO_ACCESS_USER and DEMO_ACCESS_PASSWORD, or set\n' +
+          '      DEMO_PUBLIC=1 to serve it openly on purpose, or bind HOST=127.0.0.1.',
       )
     } else if (password.length < 16) {
       problems.push(
@@ -194,9 +201,11 @@ export function describeMode(config: Config): string {
       '  Nothing is persisted; the store dies with the process.',
       '  Actor identification is header-based and trivially forgeable.',
       '  Do not enter real worker, client or booking data into this instance.',
-      config.accessGate === null
-        ? '  Not gated -- bound to loopback, reachable only from this machine.'
-        : '  Gated behind HTTP basic auth, and excluded from search indexing.',
+      config.accessGate !== null
+        ? '  Gated behind HTTP basic auth, and excluded from search indexing.'
+        : isLoopback(config.host)
+          ? '  Not gated -- bound to loopback, reachable only from this machine.'
+          : '  PUBLIC -- open to anyone with the URL. Excluded from search indexing only.',
     ].join('\n')
   }
   return `  MODE: LIVE -- vergunning ${config.vergunningNumber}`

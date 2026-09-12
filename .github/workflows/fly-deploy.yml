@@ -54,46 +54,33 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      # The app refuses to boot without these (src/config.ts), so provision
-      # them here rather than make it a separate manual round trip. Existing
-      # values are never overwritten.
+      # The app refuses to boot without PSEUDONYM_KEY (src/config.ts), so
+      # provision it here rather than make it a separate manual round trip.
+      # An existing value is never overwritten -- rotating it would orphan
+      # every administration pseudonym already issued.
       - name: Ensure app secrets exist
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           set -euo pipefail
           existing=$(flyctl secrets list -a deliverho --json 2>/dev/null || echo '[]')
-          missing=0
-          for key in PSEUDONYM_KEY DEMO_ACCESS_USER DEMO_ACCESS_PASSWORD; do
-            echo "$existing" | grep -q "\"$key\"" || missing=1
-          done
 
-          if [ "$missing" = "0" ]; then
-            echo "All app secrets already present; leaving them untouched."
-            exit 0
+          if echo "$existing" | grep -q '"PSEUDONYM_KEY"'; then
+            echo "PSEUDONYM_KEY already present; leaving it untouched."
+          else
+            flyctl secrets set -a deliverho --stage \
+              PSEUDONYM_KEY="$(openssl rand -hex 32)"
           fi
 
-          PW="$(openssl rand -base64 24 | tr -d '=+/')"
-          flyctl secrets set -a deliverho --stage \
-            PSEUDONYM_KEY="$(openssl rand -hex 32)" \
-            DEMO_ACCESS_USER="reviewer" \
-            DEMO_ACCESS_PASSWORD="$PW"
-
-          # Masked in the log; printed once in the run summary, which only
-          # people with repository access can read.
-          echo "::add-mask::$PW"
-          {
-            echo "## Demo gate credentials"
-            echo
-            echo "Generated for this deploy. They are not shown again."
-            echo
-            echo '| | |'
-            echo '|---|---|'
-            echo "| user | \`reviewer\` |"
-            echo "| password | \`$PW\` |"
-            echo
-            echo "Rotate with \`fly secrets set -a deliverho DEMO_ACCESS_PASSWORD=...\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          # This instance is public by design (DEMO_PUBLIC=1 in fly.toml), and
+          # the gate stays active for as long as credentials exist, so any
+          # left over from an earlier gated deploy have to go.
+          for key in DEMO_ACCESS_USER DEMO_ACCESS_PASSWORD; do
+            if echo "$existing" | grep -q "\"$key\""; then
+              echo "Removing $key -- this deploy is public."
+              flyctl secrets unset -a deliverho --stage "$key"
+            fi
+          done
 
       - name: Deploy
         run: flyctl deploy --remote-only
@@ -115,8 +102,8 @@ jobs:
           fi
           flyctl ips list -a deliverho
 
-      # Proves two things at once: the service answers, and the curtain is up.
-      - name: Verify it is live and gated
+      # Proves the service answers and that the basic-auth curtain is gone.
+      - name: Verify it is live and public
         run: |
           set -euo pipefail
           base="https://deliverho.fly.dev"
@@ -137,16 +124,38 @@ jobs:
           echo "GET /health -> $health"
           [ "$health" = "200" ] || { echo "::error::Health check returned $health"; exit 1; }
 
-          gated=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$base/me/offers")
-          echo "GET /me/offers (no credentials) -> $gated"
-          [ "$gated" = "401" ] || { echo "::error::Expected 401 from the access gate, got $gated"; exit 1; }
+          # /me/offers answers 401 either way -- from the basic-auth curtain, or
+          # from the app's own actor check once you are past it. The difference
+          # is the WWW-Authenticate header and the error code, so assert on
+          # those rather than on the status, which would pass while gated.
+          headers=$(curl -sS -D - -o /tmp/body.json --max-time 30 "$base/me/offers")
+          body=$(cat /tmp/body.json)
+          echo "$headers" | head -1
+          echo "body -> $body"
+
+          if echo "$headers" | grep -qi '^www-authenticate:'; then
+            echo "::error::A basic-auth curtain is still up; this deploy was meant to be public."
+            exit 1
+          fi
+          case "$body" in
+            *worker_auth_required*) echo "Reached the app directly: no curtain." ;;
+            *access_gate*) echo "::error::Still behind the access gate."; exit 1 ;;
+            *) echo "::error::Unexpected response from /me/offers: $body"; exit 1 ;;
+          esac
+
+          mode=$(echo "$headers" | grep -i '^x-deliverho-mode:' | tr -d '\r')
+          echo "$mode"
+          echo "$mode" | grep -qi 'demo' || { echo "::error::Instance is not in demo mode"; exit 1; }
 
           robots=$(curl -sS --max-time 30 "$base/robots.txt")
           echo "robots.txt -> $robots"
+          echo "$robots" | grep -q 'Disallow: /' || { echo "::error::robots.txt is not disallowing crawlers"; exit 1; }
 
           {
-            echo "## Live"
+            echo "## Live and public"
             echo
-            echo "- $base/health — 200, mode reported by the app"
-            echo "- $base — 401 behind the access gate, as intended"
+            echo "- $base/health — 200"
+            echo "- No basic-auth prompt; open to anyone with the link"
+            echo "- Still \`noindex\` and \`Disallow: /\`, so it stays out of search results"
+            echo "- Demo mode: synthetic data, nothing persisted"
           } >> "$GITHUB_STEP_SUMMARY"

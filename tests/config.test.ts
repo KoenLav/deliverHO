@@ -141,15 +141,17 @@ describe('the demo access gate', () => {
   })
 
   it('is required the moment the demo binds to anything else', () => {
-    // 0.0.0.0 is the container default, so a container cannot start ungated.
+    // 0.0.0.0 is the container default, so a container cannot start ungated
+    // by accident -- going public has to be stated.
     const problems = problemsFrom({ ...base, HOST: '0.0.0.0' }).join(' ')
     expect(problems).toContain('DEMO_ACCESS_USER')
     expect(problems).toContain('DEMO_ACCESS_PASSWORD')
   })
 
-  it('explains why, not just what', () => {
+  it('names every way out, not just the gate', () => {
     const problems = problemsFrom({ ...base, HOST: '0.0.0.0' }).join(' ')
-    expect(problems).toContain('gemeente')
+    expect(problems).toContain('DEMO_PUBLIC=1')
+    expect(problems).toContain('HOST=127.0.0.1')
   })
 
   it('defaults to a bindable host, so the default is gated', () => {
@@ -174,6 +176,27 @@ describe('the demo access gate', () => {
       DEMO_ACCESS_PASSWORD: PASSWORD,
     })
     expect(config.accessGate).toEqual({ user: 'reviewer', password: PASSWORD })
+  })
+
+  it('serves openly when DEMO_PUBLIC is set', () => {
+    const config = load({ ...base, HOST: '0.0.0.0', DEMO_PUBLIC: '1' })
+    expect(config.accessGate).toBeNull()
+  })
+
+  it('keeps the gate when credentials are set, even with DEMO_PUBLIC', () => {
+    // Explicit credentials are the stronger statement of intent: someone who
+    // set a password wants the curtain, whatever else is in the environment.
+    const config = load({
+      ...base, HOST: '0.0.0.0', DEMO_PUBLIC: '1',
+      DEMO_ACCESS_USER: 'reviewer', DEMO_ACCESS_PASSWORD: PASSWORD,
+    })
+    expect(config.accessGate).toEqual({ user: 'reviewer', password: PASSWORD })
+  })
+
+  it('does not treat any other DEMO_PUBLIC value as public', () => {
+    for (const value of ['true', 'yes', '0', '', 'TRUE']) {
+      expect(problemsFrom({ ...base, HOST: '0.0.0.0', DEMO_PUBLIC: value }).length).toBeGreaterThan(0)
+    }
   })
 
   it('does not gate live mode, which has real authentication', () => {
