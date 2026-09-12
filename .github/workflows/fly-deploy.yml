@@ -100,11 +100,37 @@ jobs:
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
+      # `fly apps create` does not allocate an IP -- only `fly launch` does --
+      # so an app created any other way deploys successfully and then fails to
+      # resolve. Allocating is idempotent; the shared v4 address is free.
+      - name: Ensure a public IP is allocated
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ -z "$(flyctl ips list -a deliverho 2>/dev/null | grep -E 'v4|v6')" ]; then
+            echo "No address allocated. Allocating."
+            flyctl ips allocate-v6 -a deliverho || true
+            flyctl ips allocate-v4 --shared -a deliverho || true
+          fi
+          flyctl ips list -a deliverho
+
       # Proves two things at once: the service answers, and the curtain is up.
       - name: Verify it is live and gated
         run: |
           set -euo pipefail
           base="https://deliverho.fly.dev"
+
+          # DNS for a freshly allocated address takes a moment to propagate, and
+          # curl's --retry does not retry a name-resolution failure.
+          for attempt in $(seq 1 24); do
+            if getent hosts deliverho.fly.dev >/dev/null 2>&1; then
+              echo "deliverho.fly.dev resolves (attempt $attempt)"
+              break
+            fi
+            [ "$attempt" = "24" ] && { echo "::error::deliverho.fly.dev never resolved"; exit 1; }
+            sleep 5
+          done
 
           health=$(curl -sS -o /dev/null -w '%{http_code}' --retry 6 --retry-all-errors \
                         --retry-delay 5 --max-time 30 "$base/health")
