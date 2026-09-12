@@ -37,6 +37,21 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+      # Fly's GitHub integration creates the app and pushes a branch, but does
+      # not set this secret. Without the check, the failure surfaces as
+      # "no access token available. Please login with 'flyctl auth login'",
+      # which sounds like a flyctl problem rather than a missing secret.
+      - name: Check Fly token is present
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          if [ -z "$FLY_API_TOKEN" ]; then
+            echo "::error::FLY_API_TOKEN repository secret is not set."
+            echo "Create a scoped token with:  fly tokens create deploy"
+            echo "Then add it at:  https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
       - name: Deploy

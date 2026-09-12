@@ -104,6 +104,25 @@ Set `FLY_API_TOKEN` as a repository secret (`fly tokens create deploy` gives a
 token scoped to deploying, not to the whole account). This path means the token
 never leaves your control.
 
+> **Linking Fly to GitHub does not set this secret.** The Fly Launch
+> integration creates the app and pushes a `flyio-new-files` branch; the
+> repository secret is a separate, manual step. The workflow checks for it up
+> front and says so, because flyctl's own error ("no access token available")
+> reads like a tooling problem rather than a missing secret.
+
+### The two sets of secrets are different
+
+Easy to conflate, and each fails at a different point:
+
+| Secret | Lives in | Missing means |
+|---|---|---|
+| `FLY_API_TOKEN` | GitHub repository secrets | The workflow cannot deploy at all |
+| `PSEUDONYM_KEY`, `DEMO_ACCESS_USER`, `DEMO_ACCESS_PASSWORD` | Fly app secrets (`fly secrets set`) | The deploy succeeds, then the app refuses to boot, `/health` never passes, and Fly rolls the release back |
+
+The second failure is the config guard working as designed — an ungated or
+unkeyed demo should not start — but it looks like a mysterious health-check
+failure if you are not expecting it.
+
 ### Notes on the configuration
 
 - **Scales to zero** when idle. The store is in-memory, so a woken demo comes
